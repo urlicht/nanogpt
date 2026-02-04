@@ -87,3 +87,22 @@ class MLP(nn.Module):
 
     def forward(self, x):
         return self.network(x)
+
+class AttentionBlock(nn.Module):
+    def __init__(self, config: Config):
+        super().__init__()
+
+        self.d_emb = config.d_emb
+        self.dropout_p = config.dropout_p
+        self.d_head = config.d_emb // config.n_head
+
+        self.mh_attn = MultiheadAttention(config)
+        self.ffn = MLP(config)
+        self.ln1 = nn.LayerNorm(self.d_emb)
+        self.ln2 = nn.LayerNorm(self.d_emb)
+
+    def forward(self, x):
+        x = self.ln1(self.mh_attn(x)) + x
+        x = self.ln2(self.ffn(x)) + x
+
+        return x
