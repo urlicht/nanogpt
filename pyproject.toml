@@ -1,0 +1,21 @@
+[project]
+name = "nanogpt"
+version = "0.1.0"
+description = "torch implementation of gpt"
+readme = "README.md"
+authors = [
+    { name = "urlicht", email = "urlicht@users.noreply.github.com" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "torch>=2.10.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.8.22,<0.9.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+]
