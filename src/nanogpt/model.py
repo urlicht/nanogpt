@@ -11,6 +11,7 @@ class Config:
     n_head:int = 12
     d_emb:int = 768
     dropout_p:float = 0.2
+    mlp_width_multiplier:int = 4
 
 
     # d_emb = 384
@@ -67,3 +68,22 @@ class MultiheadAttention(nn.Module):
         out = self.dropout(out)
         
         return out
+    
+class MLP(nn.Module):
+    def __init__(self, config: Config):
+        super().__init__()
+
+        self.d_emb = config.d_emb
+        self.dropout_p = config.dropout_p
+        self.mlp_width_x = config.mlp_width_multiplier
+
+        self.network = nn.Sequential(
+            nn.Linear(self.d_emb, self.d_emb * self.mlp_width_x),
+            nn.GELU(),
+            nn.Linear(self.d_emb * self.mlp_width_x, self.d_emb),
+            nn.GELU(),
+            nn.Dropout(self.dropout_p)
+        )
+
+    def forward(self, x):
+        return self.network(x)
