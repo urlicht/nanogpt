@@ -129,7 +129,7 @@ class NanoGPT(nn.Module):
     
         # embedding
         emb = self.token_embedding(x) # (B, T, C) where C = d_emb, T = n_token, B = n_batch
-        emb_pos = self.position_embedding(torch.arange(n_token)) # (T, C)
+        emb_pos = self.position_embedding(torch.arange(n_token, device=x.device)) # (T, C)
         x = emb + emb_pos # (B, T, C)
         x = self.blocks(x) # (B, T, C)
 
