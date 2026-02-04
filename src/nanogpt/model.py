@@ -106,3 +106,62 @@ class AttentionBlock(nn.Module):
         x = self.ln2(self.ffn(x)) + x
 
         return x
+
+class NanoGPT(nn.Module):
+    def __init__(self, config: Config):
+        super().__init__()
+
+        self.d_emb = config.d_emb
+        self.n_vocab = config.n_vocab
+        self.n_block = config.n_block
+
+        self.token_embedding = nn.Embedding(self.n_vocab, self.d_emb)
+        self.position_embedding = nn.Embedding(self.n_block, self.d_emb)
+
+        self.blocks = nn.Sequential(
+            *[AttentionBlock(config) for _ in range(config.n_layer)],
+            nn.LayerNorm(self.d_emb)
+        )
+        self.prj_out = nn.Linear(self.d_emb, self.n_vocab)
+
+    def forward(self, x, y_target=None):
+        n_batch, n_token = x.shape[:2]
+    
+        # embedding
+        emb = self.token_embedding(x) # (B, T, C) where C = d_emb, T = n_token, B = n_batch
+        emb_pos = self.position_embedding(torch.arange(n_token)) # (T, C)
+        x = emb + emb_pos # (B, T, C)
+        x = self.blocks(x) # (B, T, C)
+
+        logits = self.prj_out(x) # (B, T, n_vocab)
+
+        if y_target is None:
+            loss = None
+        else:
+            logits = logits.view(n_batch * n_token, self.n_vocab)
+            targets = y_target.view(n_batch * n_token,)
+
+            print(logits.shape)
+            print(y_target.shape)
+            loss = F.cross_entropy(logits, targets)
+
+        return logits, loss
+    
+    @torch.no_grad()
+    def generate(self, x, max_n_token):
+        # x is (B, T) of current tokens
+        for _ in range(max_n_token):
+            # crop
+            x_crop = x[:, -self.n_block:]
+            
+            # pred
+            logits, loss = self(x_crop)
+
+            # last token
+            logits = logits[:,-1,:] # (B, C)
+
+            # sample and append
+            x_next = torch.multinomial(F.softmax(logits, dim=1), num_samples=1)
+            x = torch.cat([x, x_next], dim=1) # (B, T+1)
+
+        return x
