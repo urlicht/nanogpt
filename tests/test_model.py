@@ -1,5 +1,5 @@
 import torch
-from nanogpt.model import AttentionHead, MultiheadAttention, Config
+from nanogpt.model import AttentionHead, MultiheadAttention, Config, MLP
 from dataclasses import replace
 
 def _make_config(**overrides):
@@ -216,3 +216,53 @@ class TestMultiheadAttention:
         assert output.shape[-1] == config.d_emb
         # output should not be zero
         assert not torch.allclose(output, torch.zeros_like(output))
+
+class TestMLP:
+    def test_mlp_shape(self):
+        """test MLP output shape"""
+        config = _make_config()
+        mlp = MLP(config)
+        
+        x = torch.randn(2, 5, config.d_emb)
+        output = mlp(x)
+        
+        assert output.shape == x.shape
+
+    def test_mlp_layers_and_width(self):
+        """test MLP layers shapes"""
+        config = _make_config(d_emb=6, mlp_width_multiplier=3)
+        mlp = MLP(config)
+
+        assert len(mlp.network) == 5
+        assert mlp.network[0].in_features == config.d_emb
+        assert mlp.network[0].out_features == config.d_emb * config.mlp_width_multiplier
+        assert mlp.network[2].in_features == config.d_emb * config.mlp_width_multiplier
+        assert mlp.network[2].out_features == config.d_emb
+
+    def test_mlp_gradient_flow_input(self):
+        """test gradient flow through MLP"""
+        config = _make_config()
+        mlp = MLP(config)
+
+        x = torch.randn(2, 4, config.d_emb, requires_grad=True)
+        output = mlp(x)
+        loss = output.sum()
+        loss.backward()
+
+        assert x.grad is not None
+        assert x.grad.shape == x.shape
+        assert not torch.allclose(x.grad, torch.zeros_like(x.grad))
+
+    def test_mlp_gradient_flow_params(self):
+        """test MLP parameters gradient flow"""
+        config = _make_config()
+        mlp = MLP(config)
+
+        x = torch.randn(2, 4, config.d_emb)
+        output = mlp(x)
+        loss = output.sum()
+        loss.backward()
+
+        for param in mlp.parameters():
+            assert param.grad is not None
+            assert not torch.allclose(param.grad, torch.zeros_like(param.grad))
