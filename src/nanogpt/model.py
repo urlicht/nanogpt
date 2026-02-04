@@ -140,9 +140,6 @@ class NanoGPT(nn.Module):
         else:
             logits = logits.view(n_batch * n_token, self.n_vocab)
             targets = y_target.view(n_batch * n_token,)
-
-            print(logits.shape)
-            print(y_target.shape)
             loss = F.cross_entropy(logits, targets)
 
         return logits, loss
