@@ -6,7 +6,7 @@ import torch
 import torch.nn as nn
 from typing import Tuple
 from nanogpt.model import ModelConfig, NanoGPT
-from nanogpt.data.batch import get_batch
+from nanogpt.data.batch import get_batch, build_dataloader
 from torch.utils.tensorboard import SummaryWriter
 
 @dataclass
@@ -45,6 +45,12 @@ class TrainConfig:
     grad_clip: float = 1.0
     max_iter: int = 1000
     save_every: int = 500
+
+    # dataloader
+    num_workers: int = 0
+    prefetch_factor: int = 2
+    persistent_workers: bool = False
+    pin_memory: bool = True
 
 def build_model(cfg: TrainConfig) -> NanoGPT:
     model_cfg = ModelConfig(
@@ -143,6 +149,18 @@ def train_loop(
     save_every = cfg.save_every
     grad_clip = cfg.grad_clip
     tb_writer = _build_tb_writer(out_dir)
+    pin_memory = cfg.pin_memory and device.type == "cuda"
+    train_loader = build_dataloader(
+        cfg.data_dir,
+        "train",
+        n_batch,
+        n_block,
+        num_workers=cfg.num_workers,
+        pin_memory=pin_memory,
+        prefetch_factor=cfg.prefetch_factor,
+        persistent_workers=cfg.persistent_workers,
+    )
+    train_iter = iter(train_loader)
 
     loss_fh = None
     if eval_every > 0:
@@ -157,13 +175,13 @@ def train_loop(
     for it in range(cfg.max_iter):
         t_iter = time.perf_counter()
 
-        xb, yb = get_batch(
-            cfg.data_dir,
-            'train',
-            n_batch,
-            n_block,
-            device,
-        )
+        xb, yb = next(train_iter)
+        if device.type == "cuda":
+            xb = xb.to(device, non_blocking=True)
+            yb = yb.to(device, non_blocking=True)
+        else:
+            xb = xb.to(device)
+            yb = yb.to(device)
 
         _, loss = model(xb, yb) # forward
         opt.zero_grad(set_to_none=True) # zero grad
