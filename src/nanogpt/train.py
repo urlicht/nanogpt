@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 import time
 import torch
@@ -10,6 +11,10 @@ from torch.utils.tensorboard import SummaryWriter
 
 @dataclass
 class TrainConfig:
+    # name
+    out_dir: str|Path
+    name: str
+
     # dataset
     data_dir: str|Path
 
@@ -40,7 +45,6 @@ class TrainConfig:
     grad_clip: float = 1.0
     max_iter: int = 1000
     save_every: int = 500
-    out_dir: str|Path = "checkpoints"
 
 def build_model(cfg: TrainConfig) -> NanoGPT:
     model_cfg = ModelConfig(
@@ -124,13 +128,14 @@ def train_loop(
     opt: torch.optim.Optimizer,
 ):
     model.train()
-    out_dir = Path(cfg.out_dir)
+    base_out_dir = Path(cfg.out_dir) / cfg.name
+    run_stamp = datetime.now().strftime("%Y-%m-%d-%H%M")
+    out_dir = base_out_dir / f"{cfg.name}-{run_stamp}"
+    out_dir.mkdir(parents=True, exist_ok=True)
     ckpt_dir = out_dir / "checkpoints"
     eval_every = cfg.eval_every
     if cfg.save_every > 0:
         ckpt_dir.mkdir(parents=True, exist_ok=True)
-    if eval_every > 0:
-        out_dir.mkdir(parents=True, exist_ok=True)
 
     n_batch = cfg.n_batch
     n_block = cfg.n_block
