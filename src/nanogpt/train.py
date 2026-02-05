@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from pathlib import Path
+import time
 import torch
 import torch.nn as nn
 from typing import Tuple
@@ -85,13 +86,15 @@ def build_optimizer(cfg: TrainConfig, model: NanoGPT) -> torch.optim.Optimizer:
 def eval_loss(
     cfg: TrainConfig,
     model: NanoGPT,
-) -> dict[str, torch.Tensor]:
+) -> tuple[dict[str, torch.Tensor], dict[str, float]]:
     """Run eval on train/val and return estimated losses"""
 
     loss_dict = {}
+    eval_time = {}
     model.eval()
 
     for batch in ('train', 'val'):
+        t0 = time.perf_counter()
         losses = torch.zeros(cfg.eval_iters)
         for k in range(cfg.eval_iters):
             xb, yb = get_batch(
@@ -104,10 +107,11 @@ def eval_loss(
             y_pred, loss = model(xb, yb)
             losses[k] = loss
         loss_dict[batch] = losses.mean()
+        eval_time[batch] = time.perf_counter() - t0
     
     model.train()
 
-    return loss_dict
+    return loss_dict, eval_time
 
 def _build_tb_writer(out_dir: Path):
     tb_dir = out_dir / "tb"
@@ -141,9 +145,13 @@ def train_loop(
         write_header = not loss_csv_path.exists() or loss_csv_path.stat().st_size == 0
         loss_fh = loss_csv_path.open("a", buffering=1)
         if write_header:
-            loss_fh.write("iter,train_loss,val_loss\n")
+            loss_fh.write("iter,train_loss,val_loss,train_time_avg,eval_train_time,eval_val_time\n")
 
+    train_time_sum = 0.0
+    train_time_steps = 0
     for it in range(cfg.max_iter):
+        t_iter = time.perf_counter()
+
         xb, yb = get_batch(
             cfg.data_dir,
             'train',
@@ -166,17 +174,35 @@ def train_loop(
         opt.step()
 
         tb_writer.add_scalar("grad/global_norm", float(grad_norm), it)
+        
+        train_time_sum += time.perf_counter() - t_iter
+        train_time_steps += 1
 
         # eval
         if eval_every > 0 and it % eval_every == 0:
-            loss_dict = eval_loss(cfg, model)
+            avg_train_time = train_time_sum / train_time_steps
+            loss_dict, eval_time = eval_loss(cfg, model)
             train_loss = loss_dict["train"].item()
             val_loss = loss_dict["val"].item()
-            print(f"iter {it}: train {train_loss:.4f}, val {val_loss:.4f}")
+            train_eval_time = eval_time["train"]
+            val_eval_time = eval_time["val"]
+            print(
+                f"iter {it}: train {train_loss:.4f}, val {val_loss:.4f}, "
+                f"train_time/step {avg_train_time:.2f}s, "
+                f"eval_train {train_eval_time:.2f}s, eval_val {val_eval_time:.2f}s"
+            )
             if loss_fh is not None:
-                loss_fh.write(f"{it},{train_loss:.6f},{val_loss:.6f}\n")
+                loss_fh.write(
+                    f"{it},{train_loss:.6f},{val_loss:.6f},"
+                    f"{avg_train_time:.6f},{train_eval_time:.6f},{val_eval_time:.6f}\n"
+                )
             tb_writer.add_scalar("loss/train", train_loss, it)
             tb_writer.add_scalar("loss/val", val_loss, it)
+            tb_writer.add_scalar("time/train_iter_avg_s", avg_train_time, it)
+            tb_writer.add_scalar("time/eval_train_s", train_eval_time, it)
+            tb_writer.add_scalar("time/eval_val_s", val_eval_time, it)
+            train_time_sum = 0.0
+            train_time_steps = 0
 
         # check point
         if save_every > 0 and it % save_every == 0:
