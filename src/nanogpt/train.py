@@ -7,6 +7,9 @@ from typing import Tuple
 
 @dataclass
 class TrainConfig:
+    # dataset
+    data_dir: str|Path
+
     # device
     device: torch.device = torch.device('cpu')
 
