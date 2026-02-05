@@ -84,7 +84,7 @@ def build_optimizer(cfg: TrainConfig, model: NanoGPT) -> torch.optim.Optimizer:
 def eval_loss(
     cfg: TrainConfig,
     model: NanoGPT,
-) -> dict[str, float]:
+) -> dict[str, torch.Tensor]:
     """Run eval on train/val and return estimated losses"""
 
     loss_dict = {}
