@@ -13,16 +13,6 @@ class Config:
     dropout_p:float = 0.2
     mlp_width_multiplier:int = 4
 
-
-    # d_emb = 384
-    # n_batch = 64
-    # eval_iters = 500
-    # max_iters = 5000
-    # eval_interval = 1000
-    # learning_rate = 3e-4
-    # d_head = d_emb // n_head
-    # ffn_width_multiplier: int = 4
-
 class AttentionHead(nn.Module):
     def __init__(self, config: Config):
         super().__init__()
