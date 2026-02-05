@@ -30,6 +30,9 @@ class TrainConfig:
     weight_decay: float = 0.01
     betas: Tuple[float, float] = (0.9, 0.999)
 
+    # eval
+    eval_iters: int = 100
+
 def build_model(cfg: TrainConfig) -> NanoGPT:
     model_cfg = ModelConfig(
         n_vocab=cfg.n_vocab,
@@ -70,6 +73,7 @@ def build_optimizer(cfg: TrainConfig, model: NanoGPT) -> torch.optim.Optimizer:
 
     return opt
 
+@torch.no_grad()
 def eval_loss(
     cfg: TrainConfig,
     model: NanoGPT,
@@ -77,15 +81,22 @@ def eval_loss(
     """Run eval on train/val and return estimated losses"""
 
     loss_dict = {}
-    for batch in ('train', 'validation'):
-        xb, yb = get_batch(
-            cfg.data_dir,
-            batch,
-            cfg.n_batch,
-            cfg.n_block,
-            cfg.device
-        )
-        y_pred, loss = model(xb, yb)
-        loss_dict[batch] = loss
+    model.eval()
+
+    for batch in ('train', 'val'):
+        losses = torch.zeros(cfg.eval_iters)
+        for k in range(cfg.eval_iters):
+            xb, yb = get_batch(
+                cfg.data_dir,
+                batch,
+                cfg.n_batch,
+                cfg.n_block,
+                cfg.device
+            )
+            y_pred, loss = model(xb, yb)
+            losses[k] = loss
+        loss_dict[batch] = losses.mean()
+    
+    model.train()
 
     return loss_dict
