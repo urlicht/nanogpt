@@ -4,7 +4,7 @@ from torch.nn import functional as F
 from dataclasses import dataclass
 
 @dataclass
-class Config:
+class ModelConfig:
     n_vocab:int = 512
     n_block:int = 256 # max context
     n_layer:int = 4
@@ -14,7 +14,7 @@ class Config:
     mlp_width_multiplier:int = 4
 
 class AttentionHead(nn.Module):
-    def __init__(self, config: Config):
+    def __init__(self, config: ModelConfig):
         super().__init__()
 
         self.d_head = config.d_emb // config.n_head
@@ -41,7 +41,7 @@ class AttentionHead(nn.Module):
         return output
 
 class MultiheadAttention(nn.Module):
-    def __init__(self, config: Config):
+    def __init__(self, config: ModelConfig):
         super().__init__()
         self.n_head = config.n_head
         self.d_head = config.d_emb // config.n_head
@@ -60,7 +60,7 @@ class MultiheadAttention(nn.Module):
         return out
     
 class MLP(nn.Module):
-    def __init__(self, config: Config):
+    def __init__(self, config: ModelConfig):
         super().__init__()
 
         self.d_emb = config.d_emb
@@ -79,7 +79,7 @@ class MLP(nn.Module):
         return self.network(x)
 
 class AttentionBlock(nn.Module):
-    def __init__(self, config: Config):
+    def __init__(self, config: ModelConfig):
         super().__init__()
 
         self.d_emb = config.d_emb
@@ -98,7 +98,7 @@ class AttentionBlock(nn.Module):
         return x
 
 class NanoGPT(nn.Module):
-    def __init__(self, config: Config):
+    def __init__(self, config: ModelConfig):
         super().__init__()
 
         self.d_emb = config.d_emb

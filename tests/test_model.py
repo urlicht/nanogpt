@@ -1,9 +1,9 @@
 import torch
-from nanogpt.model import AttentionHead, MultiheadAttention, Config, MLP, AttentionBlock, NanoGPT
+from nanogpt.model import AttentionHead, MultiheadAttention, ModelConfig, MLP, AttentionBlock, NanoGPT
 from dataclasses import replace
 
 def _make_config(**overrides):
-    config = Config(
+    config = ModelConfig(
         n_vocab=10,
         n_block=8,
         n_layer=1,
