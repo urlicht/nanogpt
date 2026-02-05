@@ -5,6 +5,7 @@ import torch.nn as nn
 from typing import Tuple
 from nanogpt.model import ModelConfig, NanoGPT
 from nanogpt.data.batch import get_batch
+from torch.utils.tensorboard import SummaryWriter
 
 @dataclass
 class TrainConfig:
@@ -108,6 +109,11 @@ def eval_loss(
 
     return loss_dict
 
+def _build_tb_writer(out_dir: Path):
+    tb_dir = out_dir / "tb"
+    tb_dir.mkdir(parents=True, exist_ok=True)
+    return SummaryWriter(log_dir=str(tb_dir))
+
 def train_loop(
     cfg: TrainConfig,
     model: NanoGPT,
@@ -115,8 +121,11 @@ def train_loop(
 ):
     model.train()
     out_dir = Path(cfg.out_dir)
+    ckpt_dir = out_dir / "checkpoints"
     eval_every = cfg.eval_every
-    if cfg.save_every > 0 or eval_every > 0:
+    if cfg.save_every > 0:
+        ckpt_dir.mkdir(parents=True, exist_ok=True)
+    if eval_every > 0:
         out_dir.mkdir(parents=True, exist_ok=True)
 
     n_batch = cfg.n_batch
@@ -124,6 +133,7 @@ def train_loop(
     device = cfg.device
     save_every = cfg.save_every
     grad_clip = cfg.grad_clip
+    tb_writer = _build_tb_writer(out_dir)
 
     loss_fh = None
     if eval_every > 0:
@@ -145,12 +155,17 @@ def train_loop(
         _, loss = model(xb, yb) # forward
         opt.zero_grad(set_to_none=True) # zero grad
         loss.backward() # backward pass
-        # gradient clipping
+        # gradient clipping (returns global grad norm before clipping)
+        grad_norm = None
         if grad_clip and grad_clip > 0:
-            torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
+            grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
+        else:
+            grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), float("inf"))
         
         # optimizer step
         opt.step()
+
+        tb_writer.add_scalar("grad/global_norm", float(grad_norm), it)
 
         # eval
         if eval_every > 0 and it % eval_every == 0:
@@ -160,10 +175,12 @@ def train_loop(
             print(f"iter {it}: train {train_loss:.4f}, val {val_loss:.4f}")
             if loss_fh is not None:
                 loss_fh.write(f"{it},{train_loss:.6f},{val_loss:.6f}\n")
+            tb_writer.add_scalar("loss/train", train_loss, it)
+            tb_writer.add_scalar("loss/val", val_loss, it)
 
         # check point
         if save_every > 0 and it % save_every == 0:
-            ckpt_path = out_dir / f"ckpt_{it:06d}.pt"
+            ckpt_path = ckpt_dir / f"ckpt_{it:06d}.pt"
             torch.save(
                 {
                     "iter": it,
@@ -176,3 +193,4 @@ def train_loop(
 
     if loss_fh is not None:
         loss_fh.close()
+    tb_writer.close()
