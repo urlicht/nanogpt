@@ -43,22 +43,44 @@ class AttentionHead(nn.Module):
 class MultiheadAttention(nn.Module):
     def __init__(self, config: ModelConfig):
         super().__init__()
+        assert config.d_emb % config.n_head == 0, "Embedding dim must be divisible by n_head"
+        
         self.n_head = config.n_head
         self.d_head = config.d_emb // config.n_head
         self.d_emb = config.d_emb
+
+        # Q, K, V into one linear layer for efficiency
+        self.qkv_proj = nn.Linear(config.d_emb, 3 * config.d_emb, bias=False)
+        self.out_proj = nn.Linear(config.d_emb, config.d_emb, bias=False)
+        
         self.dropout_p = config.dropout_p
 
-        self.heads = nn.ModuleList([AttentionHead(config) for _ in range(self.n_head)])
-        self.proj = nn.Linear(self.d_emb, self.d_emb)
-        self.dropout = nn.Dropout(self.dropout_p)
-
     def forward(self, x):
-        out = torch.cat([h(x) for h in self.heads], dim=-1)
-        out = self.proj(out)
-        out = self.dropout(out)
+        n_batch, n_token, d_emb = x.shape # batch, sequence length, embedding dim
+
+        # linear projection of all heads
+        qkv = self.qkv_proj(x) # (n_batch, n_token, d_emb * 3)
         
-        return out
-    
+        # split into q, k, v and reshape to (n_batch, n_head, d_head)
+        q, k, v = qkv.split(self.d_emb, dim=2)
+
+        q = q.view(n_batch, n_token, self.n_head, self.d_head).transpose(1, 2)
+        k = k.view(n_batch, n_token, self.n_head, self.d_head).transpose(1, 2)
+        v = v.view(n_batch, n_token, self.n_head, self.d_head).transpose(1, 2)
+        
+        # scaled dot product
+        out = F.scaled_dot_product_attention(
+            q, k, v,
+            attn_mask=None,
+            dropout_p=self.dropout_p if self.training else 0,
+            is_causal=True
+        )
+
+        # combine the heads and project back
+        out = out.transpose(1, 2).contiguous().view(n_batch, n_token, d_emb)
+
+        return self.out_proj(out)
+
 class MLP(nn.Module):
     def __init__(self, config: ModelConfig):
         super().__init__()
