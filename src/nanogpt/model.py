@@ -81,6 +81,38 @@ class MultiheadAttention(nn.Module):
 
         return self.out_proj(out)
 
+    def forward_cached(self, x, past_kv=None):
+        n_batch, n_token, d_emb = x.shape
+
+        qkv = self.qkv_proj(x)
+        q, k, v = qkv.split(self.d_emb, dim=2)
+
+        q = q.view(n_batch, n_token, self.n_head, self.d_head).transpose(1, 2)
+        k = k.view(n_batch, n_token, self.n_head, self.d_head).transpose(1, 2)
+        v = v.view(n_batch, n_token, self.n_head, self.d_head).transpose(1, 2)
+
+        if past_kv is not None:
+            past_k, past_v = past_kv
+            k = torch.cat([past_k, k], dim=2)
+            v = torch.cat([past_v, v], dim=2)
+            out = F.scaled_dot_product_attention(
+                q, k, v,
+                attn_mask=None,
+                dropout_p=0.0,
+                is_causal=False,
+            )
+        else:
+            out = F.scaled_dot_product_attention(
+                q, k, v,
+                attn_mask=None,
+                dropout_p=self.dropout_p if self.training else 0,
+                is_causal=True,
+            )
+
+        out = out.transpose(1, 2).contiguous().view(n_batch, n_token, d_emb)
+
+        return self.out_proj(out), (k, v)
+
 class MLP(nn.Module):
     def __init__(self, config: ModelConfig):
         super().__init__()
@@ -119,6 +151,13 @@ class AttentionBlock(nn.Module):
 
         return x
 
+    def forward_cached(self, x, past_kv=None):
+        attn_out, new_kv = self.mh_attn.forward_cached(x, past_kv)
+        x = self.ln1(attn_out) + x
+        x = self.ln2(self.ffn(x)) + x
+
+        return x, new_kv
+
 class NanoGPT(nn.Module):
     def __init__(self, config: ModelConfig):
         super().__init__()
@@ -155,22 +194,60 @@ class NanoGPT(nn.Module):
             loss = F.cross_entropy(logits, targets)
 
         return logits, loss
+
+    def forward_cached(self, x, past_kv=None, start_pos=0):
+        n_batch, n_token = x.shape[:2]
+
+        emb = self.token_embedding(x)
+        pos = torch.arange(start_pos, start_pos + n_token, device=x.device)
+        emb_pos = self.position_embedding(pos)
+        x = emb + emb_pos
+
+        attn_blocks = self.blocks[:-1]
+        ln_f = self.blocks[-1]
+
+        if past_kv is None:
+            past_kv = [None] * len(attn_blocks)
+
+        new_kv = []
+        for block, block_cache in zip(attn_blocks, past_kv):
+            x, block_kv = block.forward_cached(x, block_cache)
+            new_kv.append(block_kv)
+
+        x = ln_f(x)
+        logits = self.prj_out(x)
+
+        return logits, new_kv
     
-    @torch.no_grad()
+    @torch.inference_mode()
     def generate(self, x, max_n_token):
         # x is (B, T) of current tokens
+        was_training = self.training
+        if was_training:
+            self.eval()
+
+        if x.shape[1] > self.n_block:
+            x = x[:, -self.n_block:]
+
+        logits, kv_cache = self.forward_cached(x, past_kv=None, start_pos=0)
+
         for _ in range(max_n_token):
-            # crop
-            x_crop = x[:, -self.n_block:]
-            
-            # pred
-            logits, loss = self(x_crop)
-
-            # last token
-            logits = logits[:,-1,:] # (B, C)
-
-            # sample and append
-            x_next = torch.multinomial(F.softmax(logits, dim=1), num_samples=1)
+            logits_last = logits[:, -1, :] # (B, C)
+            x_next = torch.multinomial(F.softmax(logits_last, dim=1), num_samples=1)
             x = torch.cat([x, x_next], dim=1) # (B, T+1)
+
+            if x.shape[1] > self.n_block:
+                x = x[:, -self.n_block:]
+                logits, kv_cache = self.forward_cached(x, past_kv=None, start_pos=0)
+                continue
+
+            logits, kv_cache = self.forward_cached(
+                x_next,
+                past_kv=kv_cache,
+                start_pos=x.shape[1] - 1,
+            )
+
+        if was_training:
+            self.train()
 
         return x
