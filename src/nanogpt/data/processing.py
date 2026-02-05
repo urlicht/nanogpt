@@ -9,12 +9,12 @@ import tiktoken
 class DatasetBundle:
     train_ids: torch.Tensor
     val_ids: torch.Tensor
-    vocab_size: int
+    n_vocab: int
 
 @dataclass
 class Tokenizer:
     kind: str
-    vocab_size: int
+    n_vocab: int
     encode: Callable[[str], list[int]]
     decode: Callable[[Iterable[int]], str]
     stoi: dict[str, int] | None = None
@@ -76,7 +76,7 @@ def build_char_tokenizer(data) -> Tokenizer:
     stoi, itos = build_vocab(data)
     return Tokenizer(
         kind="char",
-        vocab_size=len(stoi),
+        n_vocab=len(stoi),
         encode=lambda text: encode(text, stoi),
         decode=lambda ids: decode(ids, itos),
         stoi=stoi,
@@ -88,7 +88,7 @@ def build_tiktoken_tokenizer(name: str = "gpt2") -> Tokenizer:
     encoding = tiktoken.get_encoding(name)
     return Tokenizer(
         kind=f"tiktoken:{name}",
-        vocab_size=encoding.n_vocab,
+        n_vocab=encoding.n_vocab,
         encode=encoding.encode,
         decode=encoding.decode,
         encoding=encoding,

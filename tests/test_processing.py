@@ -51,7 +51,7 @@ class TestCharVocab:
         tokenizer = build_char_tokenizer(text)
 
         assert tokenizer.kind == "char"
-        assert tokenizer.vocab_size == len(set(text))
+        assert tokenizer.n_vocab == len(set(text))
 
         ids = tokenizer.encode(text)
         assert ids == encode(text, tokenizer.stoi)
@@ -66,7 +66,7 @@ class TestCharVocab:
         tokenizer = build_tiktoken_tokenizer("gpt2")
 
         assert tokenizer.kind == "tiktoken:gpt2"
-        assert tokenizer.vocab_size > 0
+        assert tokenizer.n_vocab > 0
 
         ids = tokenizer.encode(text)
         assert isinstance(ids, list)
