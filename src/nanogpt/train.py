@@ -31,7 +31,14 @@ class TrainConfig:
     betas: Tuple[float, float] = (0.9, 0.999)
 
     # eval
-    eval_iters: int = 100
+    eval_iters: int = 10
+    eval_every: int = 100
+
+    # train loop
+    grad_clip: float = 1.0
+    max_iter: int = 1000
+    save_every: int = 500
+    out_dir: str|Path = "checkpoints"
 
 def build_model(cfg: TrainConfig) -> NanoGPT:
     model_cfg = ModelConfig(
@@ -100,3 +107,72 @@ def eval_loss(
     model.train()
 
     return loss_dict
+
+def train_loop(
+    cfg: TrainConfig,
+    model: NanoGPT,
+    opt: torch.optim.Optimizer,
+):
+    model.train()
+    out_dir = Path(cfg.out_dir)
+    eval_every = cfg.eval_every
+    if cfg.save_every > 0 or eval_every > 0:
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+    n_batch = cfg.n_batch
+    n_block = cfg.n_block
+    device = cfg.device
+    save_every = cfg.save_every
+    grad_clip = cfg.grad_clip
+
+    loss_fh = None
+    if eval_every > 0:
+        loss_csv_path = out_dir / "losses.csv"
+        write_header = not loss_csv_path.exists() or loss_csv_path.stat().st_size == 0
+        loss_fh = loss_csv_path.open("a", buffering=1)
+        if write_header:
+            loss_fh.write("iter,train_loss,val_loss\n")
+
+    for it in range(cfg.max_iter):
+        xb, yb = get_batch(
+            cfg.data_dir,
+            'train',
+            n_batch,
+            n_block,
+            device,
+        )
+
+        _, loss = model(xb, yb) # forward
+        opt.zero_grad(set_to_none=True) # zero grad
+        loss.backward() # backward pass
+        # gradient clipping
+        if grad_clip and grad_clip > 0:
+            torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
+        
+        # optimizer step
+        opt.step()
+
+        # eval
+        if eval_every > 0 and it % eval_every == 0:
+            loss_dict = eval_loss(cfg, model)
+            train_loss = loss_dict["train"].item()
+            val_loss = loss_dict["val"].item()
+            print(f"iter {it}: train {train_loss:.4f}, val {val_loss:.4f}")
+            if loss_fh is not None:
+                loss_fh.write(f"{it},{train_loss:.6f},{val_loss:.6f}\n")
+
+        # check point
+        if save_every > 0 and it % save_every == 0:
+            ckpt_path = out_dir / f"ckpt_{it:06d}.pt"
+            torch.save(
+                {
+                    "iter": it,
+                    "model": model.state_dict(),
+                    "optimizer": opt.state_dict(),
+                    "cfg": cfg,
+                },
+                ckpt_path,
+            )
+
+    if loss_fh is not None:
+        loss_fh.close()
