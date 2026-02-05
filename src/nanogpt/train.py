@@ -2,8 +2,9 @@ from dataclasses import dataclass
 from pathlib import Path
 import torch
 import torch.nn as nn
-from nanogpt.model import ModelConfig, NanoGPT
 from typing import Tuple
+from nanogpt.model import ModelConfig, NanoGPT
+from nanogpt.data.batch import get_batch
 
 @dataclass
 class TrainConfig:
@@ -68,3 +69,23 @@ def build_optimizer(cfg: TrainConfig, model: NanoGPT) -> torch.optim.Optimizer:
     opt = torch.optim.AdamW(optim_groups, lr=cfg.learning_rate, betas=cfg.betas)
 
     return opt
+
+def eval_loss(
+    cfg: TrainConfig,
+    model: NanoGPT,
+) -> dict[str, float]:
+    """Run eval on train/val and return estimated losses"""
+
+    loss_dict = {}
+    for batch in ('train', 'validation'):
+        xb, yb = get_batch(
+            cfg.data_dir,
+            batch,
+            cfg.n_batch,
+            cfg.n_block,
+            cfg.device
+        )
+        y_pred, loss = model(xb, yb)
+        loss_dict[batch] = loss
+
+    return loss_dict
