@@ -1,9 +1,10 @@
 import os
 import torch
 import numpy as np
+from pathlib import Path
 
 def get_batch(
-    data_dir: str, 
+    data_dir: str|Path, 
     split: str, 
     n_batch: int, 
     n_block: int, 
