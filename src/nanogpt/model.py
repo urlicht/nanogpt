@@ -226,7 +226,7 @@ class NanoGPT(nn.Module):
         if was_training:
             self.eval()
 
-        # Keep full output sequence while only attending to the latest n_block tokens.
+        # keep full output sequence while only attending to the latest n_block tokens.
         x_full = x
         x_ctx = x_full[:, -self.n_block:]
         logits, kv_cache = self.forward_cached(x_ctx, past_kv=None, start_pos=0)
@@ -237,7 +237,7 @@ class NanoGPT(nn.Module):
             x_full = torch.cat([x_full, x_next], dim=1) # (B, T+1)
 
             if x_ctx.shape[1] < self.n_block:
-                # Grow cache until context reaches n_block tokens.
+                # grow cache until context reaches n_block tokens.
                 x_ctx = torch.cat([x_ctx, x_next], dim=1)
                 logits, kv_cache = self.forward_cached(
                     x_next,
@@ -245,7 +245,7 @@ class NanoGPT(nn.Module):
                     start_pos=x_ctx.shape[1] - 1,
                 )
             else:
-                # Once context is full, slide the window and refresh cache.
+                # once context is full, slide the window and refresh cache.
                 x_ctx = x_full[:, -self.n_block:]
                 logits, kv_cache = self.forward_cached(x_ctx, past_kv=None, start_pos=0)
 
